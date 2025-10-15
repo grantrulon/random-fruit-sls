@@ -8,16 +8,16 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
 
 # Lambda function
 resource "aws_lambda_function" "api_lambda" {
   filename         = "lambda.zip"
-  function_name    = "api-lambda"
+  function_name    = "generate-random-name"
   role            = aws_iam_role.lambda_role.arn
   handler         = "lambda_function.lambda_handler"
-  runtime         = "python3.9"
+  runtime         = "python3.13"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 }
 
@@ -45,13 +45,13 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 
 # API Gateway
 resource "aws_api_gateway_rest_api" "api" {
-  name = "lambda-api"
+  name = "name-api"
 }
 
 resource "aws_api_gateway_resource" "resource" {
   rest_api_id = aws_api_gateway_rest_api.api.id
   parent_id   = aws_api_gateway_rest_api.api.root_resource_id
-  path_part   = "hello"
+  path_part   = "name"
 }
 
 resource "aws_api_gateway_method" "method" {
@@ -73,7 +73,21 @@ resource "aws_api_gateway_integration" "integration" {
 resource "aws_api_gateway_deployment" "deployment" {
   depends_on = [aws_api_gateway_integration.integration]
   rest_api_id = aws_api_gateway_rest_api.api.id
-  stage_name = "prod"
+
+  # Force a new deployment when configuration changes
+  triggers = {
+    redeployment = sha1(jsonencode(aws_api_gateway_rest_api.api.body))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_api_gateway_stage" "blue" {
+  deployment_id = aws_api_gateway_deployment.deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  stage_name    = "blue"
 }
 
 resource "aws_lambda_permission" "api_gateway" {
